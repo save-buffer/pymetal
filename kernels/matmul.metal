@@ -16,7 +16,6 @@ kernel void matmul(
     uint ik = gid.x;
 
     float result = 0.0;
-    
     for(uint in = 0; in < N; in++)
     {
         uint ia = im * M + in;
@@ -27,3 +26,4 @@ kernel void matmul(
     uint iout = im * M + ik;
     out[iout] = result;
 }
+

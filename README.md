@@ -53,3 +53,23 @@ in the Python invocation. Next we have `N`, which is a `uint`. This is passed as
 `run_metal_kernel`, and gets correctly allocated and copies to the device as you'd expect (internally
 it gets converted into a numpy array of size 1). The last two arguments are arguments that the
 kernel receives from the runtime, so we can omit them from the Python side. 
+
+### Logging
+First include `<metal_logging>` into your kernel and create a log object:
+```metal
+#include <metal_logging>
+
+constant metal::os_log kernel_log("kernel", "kernel");
+```
+Then in your kernel write
+```
+kernel_log.log_debug("stuff_to_log: %.3f\n", stuff[i]);
+```
+
+Then set `enable_logging=True` in `run_metal_kernel`. Lastly, set these two environment variables
+when running:
+```
+MTL_LOG_LEVEL="MTLLogLevelDebug" 
+MTL_LOG_TO_STDERR=1
+```
+
