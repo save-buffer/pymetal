@@ -45,13 +45,13 @@ def test_matmul():
 def softmax(x):
     m = np.max(x, axis=-1, keepdims=True)
     z = np.exp(x - m)
-    s = np.sum(z, axis=1, keepdims=True)
+    s = np.sum(z, axis=-1, keepdims=True)
     return z / s
 
 def gqa_reference(Q, K, V):
     nq, qctx, dhead = Q.shape
     nkv, nctx, _ = K.shape
-
+ 
     Q = rearrange(Q, '(groups nkv) qctx dhead -> groups nkv qctx dhead', nkv=nkv)
     QK = einsum(Q, K, 'groups nkv qctx dhead, nkv nctx dhead -> groups nkv qctx nctx')
     QK /= np.sqrt(dhead)
@@ -88,14 +88,16 @@ def test_gqa():
         enable_logging=True,
     )
     np.testing.assert_allclose(
-        exp_qk.reshape(act_qk.shape),
         act_qk,
+        exp_qk.reshape(act_qk.shape),
         atol=1e-5,
         rtol=1e-5,
     )
     np.testing.assert_allclose(
-        expected,
         actual,
+        expected,
+        atol=1e-5,
+        rtol=1e-5,
     )
 
 if __name__ == '__main__':

@@ -10,25 +10,27 @@ constant uint nkv = 8;
 constant uint qctx = 128;
 constant uint dhead = 128;
 
-constant metal::os_log kernel_log("kernel", "kernel");
-
 constexpr uint IQK(uint iqhead, uint iqctx, uint ictx, uint nctx)
 {
+    // [nq, qctx, nctx]
     return iqhead * qctx * nctx + iqctx * nctx + ictx;
 }
 
 constexpr uint IQ(uint iqhead, uint iqctx)
 {
+    // [nq, qctx, dhead]
     return iqhead * qctx * dhead + iqctx * dhead;
 }
 
 constexpr uint IKV(uint ikvhead, uint ictx, uint nctx)
 {
+    // [nkv, nctx, dhead]
     return ikvhead * nctx * dhead + ictx * dhead;
 }
 
 constexpr uint IO(uint iqhead, uint iqctx)
 {
+    // [nq, qctx, dhead]
     return iqhead * qctx * dhead + iqctx * dhead;
 }
 
@@ -53,7 +55,6 @@ kernel void gqa(
     threadgroup float logits[32] = {};
     threadgroup float o[dhead] = {};
 
-    // kernel_log.log_debug("%d", thread_index.x);
     float prev_d = 0.0;
     for(uint ictx = thread_index.x; ictx < nctx; ictx += warp_size)
     {
@@ -73,27 +74,26 @@ kernel void gqa(
         // Now we have 1x32 qk-scores
         float tile_max = simd_max(qk_score);
         float logit = exp(qk_score - tile_max);
+
         float tile_l = simd_sum(logit);
-
         float new_max = fmax(tile_max, running_max);
-
         float new_l = exp(running_max - new_max) * running_l + exp(tile_max - new_max) * tile_l;
 
         // now we compute [1x32] x [32x128] => 1x128
         logits[thread_index.x] = logit;
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+        uint warp_base_ctx = ictx - thread_index.x;
         for(uint id = thread_index.x; id < dhead; id += warp_size)
         {
-            float tile_o = o[id];
             float v_proj = 0.0;
-            for(uint iqk = 0; iqk < warp_size && (ictx - thread_index.x + iqk) < nctx; iqk++)
+            for(uint iqk = 0; iqk < warp_size; iqk++)
             {
-                uint ctx_idx = ictx - thread_index.x + iqk;
-                uint iv = IKV(ikvhead, ctx_idx, nctx) + id;
+                uint iv = IKV(ikvhead, warp_base_ctx + iqk, nctx) + id;
                 v_proj += logits[iqk] * V[iv];
             }
-            float new_o = (running_l * exp(running_max - new_max) * tile_o + exp(tile_max - new_max) * v_proj) / new_l;
+            float rescaled_old_o = running_l * exp(running_max - new_max) * o[id];
+            float rescaled_v_proj = exp(tile_max - new_max) * v_proj;
+            float new_o = (rescaled_old_o + rescaled_v_proj) / new_l;
             o[id] = new_o;
         }
         running_l = new_l;
