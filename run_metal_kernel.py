@@ -13,10 +13,9 @@ def init_metal():
     device = MTLCreateSystemDefaultDevice()
     if not device:
         raise RuntimeError("Metal is not supported on this device")
-    command_queue = device.newCommandQueue()
-    return device, command_queue
+    return device
 
-g_device, g_command_queue = init_metal()
+g_device = init_metal()
 
 def compile_kernel(device, kernel_path, enable_logging=False):
     with open(kernel_path, 'r') as f:
@@ -34,7 +33,6 @@ def compile_kernel(device, kernel_path, enable_logging=False):
 
 def execute_kernel(
     device,
-    command_queue,
     library,
     kernel_name,
     inputs,
@@ -59,22 +57,29 @@ def execute_kernel(
         output_buffer = device.newBufferWithLength_options_(
             output_bytes, MTLResourceStorageModeShared
         )
+        if not output_buffer:
+            raise RuntimeError(f"Failed to allocate output {i} of size {output_bytes} bytes")
         buffers.append(output_buffer)
-    
-    for input in inputs:
-        buffer_size = input.nbytes
-        buffer = device.newBufferWithBytes_length_options_(
-            input, buffer_size, MTLResourceStorageModeShared
+        
+    for i, input in enumerate(inputs):
+        input_buffer_size = input.nbytes
+        # TODO: Probably possible to make a new buffer that wraps the numpy array bytes
+        # TODO: If an input is an int, make it use setBytes
+        input_buffer = device.newBufferWithBytes_length_options_(
+            input, input_buffer_size, MTLResourceStorageModeShared
         )
-        buffers.append(buffer)
-    
+        if not input_buffer:
+            raise RuntimeError(f"Failed to allocate input {i} of size {input_buffer_size} bytes")
+        buffers.append(input_buffer)
+
+    command_queue = g_device.newCommandQueue()
     command_buffer = command_queue.commandBuffer()
     compute_encoder = command_buffer.computeCommandEncoder()
     
     compute_encoder.setComputePipelineState_(pipeline_state)
     for i, buffer in enumerate(buffers):
         compute_encoder.setBuffer_offset_atIndex_(buffer, 0, i)
-    
+        
     mtl_grid_size = MTLSizeMake(*grid_size)
     mtl_threadgroup_size = MTLSizeMake(*threadgroup_size)
 
@@ -83,6 +88,8 @@ def execute_kernel(
     compute_encoder.endEncoding()
     command_buffer.commit()
     command_buffer.waitUntilCompleted()
+    if command_buffer.status() == MTLCommandBufferStatusError:
+        raise RuntimeError(f"Kernel command returned error: {command_buffer.error()}")
 
     results = []
     for i, output_shape in enumerate(outputs):
@@ -134,6 +141,9 @@ def run_metal_kernel(
     output_dtype : np.dtype | list[np.dtype] | None = None,
     enable_logging : bool = False,
 ) -> np.ndarray | tuple[np.ndarray, ...]:
+    if np.prod(threadgroup_size) > 1024:
+        raise ValueError("Metal only supports up to 1024 threads per threadgroup")
+
     inputs_clean = clean_inputs(inputs)
     outputs_clean = clean_outputs(output_shape)
     output_dtype_clean = clean_output_dtype(outputs_clean, output_dtype)
@@ -141,7 +151,6 @@ def run_metal_kernel(
     library = compile_kernel(g_device, f"kernels/{kernel_name}.metal", enable_logging=enable_logging)
     result = execute_kernel(
         g_device,
-        g_command_queue,
         library,
         kernel_name,
         inputs_clean,

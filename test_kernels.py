@@ -14,8 +14,8 @@ def test_matrix_add():
         "matrix_add",
         shape,
         [A, B],
-        (np.prod(shape), 1, 1),
-        (32, 1, 1),
+        (np.prod(shape) // 128, 1, 1),
+        (128, 1, 1),
     )
 
     np.testing.assert_allclose(
@@ -24,23 +24,25 @@ def test_matrix_add():
     )
 
 
-def test_matmul():
+def test_matmul_simple():
     M, N, K = 4096, 4096, 4096
     A = np.random.randn(M, N).astype(np.float32)
     B = np.random.randn(N, K).astype(np.float32)
 
     expected = A @ B
     actual = run_metal_kernel(
-        "matmul",
+        "matmul_simple",
         (M, K),
         [A, B, N],
-        (M // 16, K // 16, 1),
-        (16, 16, 1),
+        (M // 32, K // 32, 1),
+        (32, 32, 1),
+        enable_logging=True,
     )
     np.testing.assert_allclose(
         actual,
         expected,
     )
+
 
 def softmax(x):
     m = np.max(x, axis=-1, keepdims=True)
@@ -85,7 +87,6 @@ def test_gqa():
         [Q, K, V, nctx],
         (nq, qctx, 1),
         (32, 1, 1),
-        enable_logging=True,
     )
     np.testing.assert_allclose(
         act_qk,
@@ -101,4 +102,6 @@ def test_gqa():
     )
 
 if __name__ == '__main__':
+    test_matrix_add()
+    test_matmul_simple()
     test_gqa()

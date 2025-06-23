@@ -1,7 +1,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-kernel void matmul(
+kernel void matmul_simple(
     device float *out [[buffer(0)]],
     device const float *A [[buffer(1)]],
     device const float *B [[buffer(2)]],
@@ -12,8 +12,8 @@ kernel void matmul(
     uint M = grid_size.x;
     uint K = grid_size.y;
 
-    uint im = gid.y;
-    uint ik = gid.x;
+    uint im = gid.x;
+    uint ik = gid.y;
 
     float result = 0.0;
     for(uint in = 0; in < N; in++)
