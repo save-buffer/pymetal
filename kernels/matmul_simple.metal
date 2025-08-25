@@ -26,4 +26,3 @@ kernel void matmul_simple(
     uint iout = im * M + ik;
     out[iout] = result;
 }
-

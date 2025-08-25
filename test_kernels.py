@@ -23,7 +23,6 @@ def test_matrix_add():
         expected,
     )
 
-
 def test_matmul_simple():
     M, N, K = 4096, 4096, 4096
     A = np.random.randn(M, N).astype(np.float32)
@@ -36,13 +35,33 @@ def test_matmul_simple():
         [A, B, N],
         (M // 32, K // 32, 1),
         (32, 32, 1),
-        enable_logging=True,
+        enable_logging=False,
+        profile=True,
     )
     np.testing.assert_allclose(
         actual,
         expected,
     )
 
+def test_matmul():
+    M, N, K = 4096, 4096, 4096
+    A = np.random.randn(M, N).astype(np.float32)
+    B = np.random.randn(N, K).astype(np.float32)
+
+    expected = A @ B
+    actual = run_metal_kernel(
+        "matmul",
+        (M, K),
+        [A, B, N],
+        (M // 8, K // 8, 1),
+        (32, 32, 1),
+        enable_logging=False,
+        profile=True,
+    )
+    np.testing.assert_allclose(
+        actual,
+        expected,
+    )
 
 def softmax(x):
     m = np.max(x, axis=-1, keepdims=True)
@@ -62,7 +81,6 @@ def gqa_reference(Q, K, V):
     result = rearrange(O, 'groups nkv qctx dhead -> (groups nkv) qctx dhead')
 
     return result, QK
-
 
 def test_gqa():
     # Llama 3 8B config
@@ -102,6 +120,7 @@ def test_gqa():
     )
 
 if __name__ == '__main__':
-    test_matrix_add()
+    # test_matrix_add()
     test_matmul_simple()
-    test_gqa()
+    # test_matmul()
+    # test_gqa()

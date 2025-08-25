@@ -1,12 +1,14 @@
 import ctypes
 from dataclasses import dataclass
+from tempfile import mkdtemp
 import os
 from typing import Sequence
+import subprocess
 
 import numpy as np
 
 import objc
-from Foundation import NSBundle, NSData, NSError
+from Foundation import NSBundle, NSData, NSError, NSURL
 from Metal import *
 
 def init_metal():
@@ -40,13 +42,15 @@ def execute_kernel(
     grid_size,
     threadgroup_size,
     output_dtype,
+    profile=False,
 ):
     kernel_function = library.newFunctionWithName_(kernel_name)
     if not kernel_function:
         raise RuntimeError(f"Kernel '{kernel_name}' not found")
     
     pipeline_state, error = device.newComputePipelineStateWithFunction_error_(
-        kernel_function, None
+        kernel_function,
+        None,
     )
     if error:
         raise RuntimeError(f"Pipeline creation failed: {error.localizedDescription()}")
@@ -55,7 +59,8 @@ def execute_kernel(
     for i, out in enumerate(outputs):
         output_bytes = np.prod(out) * np.dtype(output_dtype[i]).itemsize
         output_buffer = device.newBufferWithLength_options_(
-            output_bytes, MTLResourceStorageModeShared
+            output_bytes,
+            MTLResourceStorageModeShared,
         )
         if not output_buffer:
             raise RuntimeError(f"Failed to allocate output {i} of size {output_bytes} bytes")
@@ -66,13 +71,33 @@ def execute_kernel(
         # TODO: Probably possible to make a new buffer that wraps the numpy array bytes
         # TODO: If an input is an int, make it use setBytes
         input_buffer = device.newBufferWithBytes_length_options_(
-            input, input_buffer_size, MTLResourceStorageModeShared
+            input,
+            input_buffer_size,
+            MTLResourceStorageModeShared,
         )
         if not input_buffer:
             raise RuntimeError(f"Failed to allocate input {i} of size {input_buffer_size} bytes")
         buffers.append(input_buffer)
 
     command_queue = g_device.newCommandQueue()
+    if profile:
+        capture_manager = MTLCaptureManager.sharedCaptureManager()
+        if not capture_manager.supportsDestination_(MTLCaptureDestinationGPUTraceDocument):
+            raise RuntimeError("Capturing to GPU trace file is not supported")
+
+        trace_url = NSURL.fileURLWithPath_(mkdtemp() + "/trace.gputrace")
+        capture_descriptor = MTLCaptureDescriptor()
+        capture_descriptor.setCaptureObject_(command_queue)
+        capture_descriptor.setDestination_(MTLCaptureDestinationGPUTraceDocument)
+        capture_descriptor.setOutputURL_(trace_url)
+
+        _, error = capture_manager.startCaptureWithDescriptor_error_(
+            capture_descriptor,
+            None,
+        )
+        if error:
+            raise RuntimeError(f"Failed to start capture: {error.localizedDescription()}")
+
     command_buffer = command_queue.commandBuffer()
     compute_encoder = command_buffer.computeCommandEncoder()
     
@@ -90,6 +115,10 @@ def execute_kernel(
     command_buffer.waitUntilCompleted()
     if command_buffer.status() == MTLCommandBufferStatusError:
         raise RuntimeError(f"Kernel command returned error: {command_buffer.error()}")
+
+    if profile:
+        capture_manager.stopCapture()
+        subprocess.run(["open", trace_url])
 
     results = []
     for i, output_shape in enumerate(outputs):
@@ -140,6 +169,7 @@ def run_metal_kernel(
     threadgroup_size : tuple[int, int, int],
     output_dtype : np.dtype | list[np.dtype] | None = None,
     enable_logging : bool = False,
+    profile : bool = False,
 ) -> np.ndarray | tuple[np.ndarray, ...]:
     if np.prod(threadgroup_size) > 1024:
         raise ValueError("Metal only supports up to 1024 threads per threadgroup")
@@ -158,6 +188,7 @@ def run_metal_kernel(
         grid_size,
         threadgroup_size,
         output_dtype=output_dtype_clean,
+        profile=profile,
     )
     return result
 
