@@ -54,7 +54,7 @@ def test_matmul():
         (M, K),
         [A, B, N],
         (M // 8, K // 8, 1),
-        (32, 32, 1),
+        (32, 1, 1),
         enable_logging=False,
         profile=True,
     )
@@ -120,7 +120,7 @@ def test_gqa():
     )
 
 if __name__ == '__main__':
-    test_matrix_add()
-    test_matmul_simple()
+    #test_matrix_add()
+    #test_matmul_simple()
     test_matmul()
-    test_gqa()
+    #test_gqa()
