@@ -17,8 +17,6 @@ def init_metal():
         raise RuntimeError("Metal is not supported on this device")
     return device
 
-g_device = init_metal()
-
 def compile_kernel(device, kernel_path, enable_logging=False):
     with open(kernel_path, 'r') as f:
         kernel_source = f.read()
@@ -79,24 +77,26 @@ def execute_kernel(
             raise RuntimeError(f"Failed to allocate input {i} of size {input_buffer_size} bytes")
         buffers.append(input_buffer)
 
-    command_queue = g_device.newCommandQueue()
+    command_queue = device.newCommandQueue()
     if profile:
         capture_manager = MTLCaptureManager.sharedCaptureManager()
         if not capture_manager.supportsDestination_(MTLCaptureDestinationGPUTraceDocument):
-            raise RuntimeError("Capturing to GPU trace file is not supported")
+            print("[WARNING] Capturing to a GPU trace file is not enabled. Not profiling.")
+            print("          Make sure to set MTL_CAPTURE_ENABLED=1")
+            profile = False
+        else:
+            trace_url = NSURL.fileURLWithPath_(mkdtemp() + f"/{kernel_name}.gputrace")
+            capture_descriptor = MTLCaptureDescriptor()
+            capture_descriptor.setCaptureObject_(command_queue)
+            capture_descriptor.setDestination_(MTLCaptureDestinationGPUTraceDocument)
+            capture_descriptor.setOutputURL_(trace_url)
 
-        trace_url = NSURL.fileURLWithPath_(mkdtemp() + "/trace.gputrace")
-        capture_descriptor = MTLCaptureDescriptor()
-        capture_descriptor.setCaptureObject_(command_queue)
-        capture_descriptor.setDestination_(MTLCaptureDestinationGPUTraceDocument)
-        capture_descriptor.setOutputURL_(trace_url)
-
-        _, error = capture_manager.startCaptureWithDescriptor_error_(
-            capture_descriptor,
-            None,
-        )
-        if error:
-            raise RuntimeError(f"Failed to start capture: {error.localizedDescription()}")
+            _, error = capture_manager.startCaptureWithDescriptor_error_(
+                capture_descriptor,
+                None,
+            )
+            if error:
+                raise RuntimeError(f"Failed to start capture: {error.localizedDescription()}")
 
     command_buffer = command_queue.commandBuffer()
     compute_encoder = command_buffer.computeCommandEncoder()
@@ -178,9 +178,10 @@ def run_metal_kernel(
     outputs_clean = clean_outputs(output_shape)
     output_dtype_clean = clean_output_dtype(outputs_clean, output_dtype)
 
-    library = compile_kernel(g_device, f"kernels/{kernel_name}.metal", enable_logging=enable_logging)
+    device = init_metal()
+    library = compile_kernel(device, f"kernels/{kernel_name}.metal", enable_logging=enable_logging)
     result = execute_kernel(
-        g_device,
+        device,
         library,
         kernel_name,
         inputs_clean,

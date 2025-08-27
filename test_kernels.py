@@ -120,7 +120,7 @@ def test_gqa():
     )
 
 if __name__ == '__main__':
-    # test_matrix_add()
+    test_matrix_add()
     test_matmul_simple()
-    # test_matmul()
-    # test_gqa()
+    test_matmul()
+    test_gqa()
