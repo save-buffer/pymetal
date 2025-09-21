@@ -45,7 +45,6 @@ def test_matmul_simple():
 
 def test_matmul():
     M, N, K = 4096, 4096, 4096
-    np.random.seed(420)
     A = np.random.randn(M, N).astype(np.float32)
     B = np.random.randn(N, K).astype(np.float32)
 
@@ -54,8 +53,8 @@ def test_matmul():
         "matmul",
         (M, K),
         [A, B, N],
-        (M // 64, K // 64, 1),
-        (32, 4, 1),
+        (M // 8, K // 8, 1),
+        (32, 1, 1),
         enable_logging=False,
         profile=True,
     )
