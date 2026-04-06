@@ -8,8 +8,22 @@ import subprocess
 import numpy as np
 
 import objc
-from Foundation import NSBundle, NSData, NSError, NSURL
+from Foundation import NSURL
 from Metal import *
+
+# PyObjC lacks metadata for new MTL4 APIs — tell it the error: param is an
+# output NSError** so we get back (result, error) tuples.
+objc.registerMetaDataForSelector(
+    b"NSObject",
+    b"newLibraryWithDescriptor:error:",
+    {"arguments": {3: {"type_modifier": b"o"}}},
+)
+objc.registerMetaDataForSelector(
+    b"NSObject",
+    b"newCompilerWithDescriptor:error:",
+    {"arguments": {3: {"type_modifier": b"o"}}},
+)
+
 
 def init_metal():
     device = MTLCreateSystemDefaultDevice()
@@ -17,19 +31,30 @@ def init_metal():
         raise RuntimeError("Metal is not supported on this device")
     return device
 
+
 def compile_kernel(device, kernel_path, enable_logging=False):
     with open(kernel_path, 'r') as f:
         kernel_source = f.read()
 
     options = MTLCompileOptions()
     options.setEnableLogging_(enable_logging)
-    library, error = device.newLibraryWithSource_options_error_(
-        kernel_source, options, None
-    )
+    options.setLanguageVersion_(0x40000)
+
+    compiler_desc = MTL4CompilerDescriptor()
+    compiler, error = device.newCompilerWithDescriptor_error_(compiler_desc, None)
     if error:
-        raise RuntimeError(f"Failed to compile kernel: {error.localizedDescription()}")
-    
+        raise RuntimeError(f"Failed to create MTL4 compiler: {error.localizedDescription()}")
+
+    lib_desc = MTL4LibraryDescriptor()
+    lib_desc.setSource_(kernel_source)
+    lib_desc.setOptions_(options)
+
+    library, error = compiler.newLibraryWithDescriptor_error_(lib_desc, None)
+    if error:
+        raise RuntimeError(f"Failed to compile kernel:\n{error.localizedDescription()}")
+
     return library
+
 
 def execute_kernel(
     device,
@@ -100,16 +125,16 @@ def execute_kernel(
 
     command_buffer = command_queue.commandBuffer()
     compute_encoder = command_buffer.computeCommandEncoder()
-    
+
     compute_encoder.setComputePipelineState_(pipeline_state)
     for i, buffer in enumerate(buffers):
         compute_encoder.setBuffer_offset_atIndex_(buffer, 0, i)
-        
+
     mtl_grid_size = MTLSizeMake(*grid_size)
     mtl_threadgroup_size = MTLSizeMake(*threadgroup_size)
 
     compute_encoder.dispatchThreadgroups_threadsPerThreadgroup_(mtl_grid_size, mtl_threadgroup_size)
-    
+
     compute_encoder.endEncoding()
     command_buffer.commit()
     command_buffer.waitUntilCompleted()
@@ -160,6 +185,7 @@ def clean_output_dtype(outputs_clean, output_dtype):
     if output_dtype is not None and len(outputs_clean) != len(out_dtype_clean):
         raise ValueError("Not enough output datatypes specified!")
     return result
+
 
 def run_metal_kernel(
     kernel_name : str,
