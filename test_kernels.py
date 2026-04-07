@@ -48,7 +48,7 @@ def test_matmul_simple():
     )
 
 def test_matmul():
-    M, N, K = 4096, 4096, 4096
+    M, N, K = 8192, 8192, 8192
 
     key = jax.random.key(420)
     A = np.array(jax.random.normal(key, (M, K), bfloat16))
@@ -56,11 +56,13 @@ def test_matmul():
 
     expected = np.array((A @ B).astype(bfloat16))
 
+    num_thread_groups = (M // 64) * (N // 64)
+
     actual = run_metal_kernel(
         "matmul",
         (M, N),
         [A, B],
-        (M // 64, N // 64, 1),
+        (num_thread_groups, 1, 1),
         (32 * 4, 1, 1),
         output_dtype=bfloat16,
         enable_logging=False,
