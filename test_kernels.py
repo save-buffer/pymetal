@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 
+import jax
+import jax.numpy as jnp
 import numpy as np
+from ml_dtypes import bfloat16
+
 from einops import rearrange, einsum
 from run_metal_kernel import run_metal_kernel
 
@@ -45,24 +49,31 @@ def test_matmul_simple():
 
 def test_matmul():
     M, N, K = 4096, 4096, 4096
-    np.random.seed(420)
-    A = np.random.randn(M, K).astype(np.float32)
-    B = np.random.randn(K, N).astype(np.float32)
 
-    expected = A @ B
+    key = jax.random.key(420)
+    A = np.array(jax.random.normal(key, (M, K), bfloat16))
+    B = np.array(jax.random.normal(key, (K, N), bfloat16))
+
+    expected = np.array((A @ B).astype(bfloat16))
+
     actual = run_metal_kernel(
         "matmul",
         (M, N),
         [A, B],
         (M // 64, N // 64, 1),
         (32 * 4, 1, 1),
+        output_dtype=bfloat16,
         enable_logging=False,
         profile=True,
     )
+
     np.testing.assert_allclose(
         actual,
         expected,
+        atol=1e-2,
+        rtol=1e-2,
     )
+
 
 def softmax(x):
     m = np.max(x, axis=-1, keepdims=True)
@@ -106,6 +117,7 @@ def test_gqa():
         [Q, K, V, nctx],
         (nq, qctx, 1),
         (32, 1, 1),
+        profile=True,
     )
     np.testing.assert_allclose(
         act_qk,

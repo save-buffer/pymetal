@@ -7,9 +7,9 @@ using namespace metal;
 using namespace mpp::tensor_ops;
 
 kernel void matmul(
-    device float *out [[buffer(0)]],
-    device float *A [[buffer(1)]],
-    device float *B [[buffer(2)]],
+    device bfloat *out [[buffer(0)]],
+    device bfloat *A [[buffer(1)]],
+    device bfloat *B [[buffer(2)]],
     uint2 tgid [[threadgroup_position_in_grid]])
 {
     constexpr int M = 4096;

@@ -177,12 +177,12 @@ def clean_outputs(output_shape):
 def clean_output_dtype(outputs_clean, output_dtype):
     if output_dtype is None:
         result = [np.float32] * len(outputs_clean)
-    elif isinstance(output_dtype, np.dtype):
-        result = [output_dtype]
-    else:
+    elif isinstance(output_dtype, (list, tuple)):
         result = output_dtype
+    else:
+        result = [output_dtype]
 
-    if output_dtype is not None and len(outputs_clean) != len(out_dtype_clean):
+    if output_dtype is not None and len(outputs_clean) != len(result):
         raise ValueError("Not enough output datatypes specified!")
     return result
 
